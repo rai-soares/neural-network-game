@@ -172,7 +172,8 @@ def main():
             merged_memories[idx]['rewards'].extend(memories[idx]['rewards'])
     train_nn(nn, merged_memories, NUM_PLAYERS, 'ALL')
     # Update graph visualizer after global training
-    nn_graph_vis.update([nn.W1, nn.W2])
+    if nn_graph_vis:
+        nn_graph_vis.update([nn.W1, nn.W2])
     # Save weights to file
     if best_weights:
         save_best_weights(nn, weights_file)
