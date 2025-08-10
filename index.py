@@ -2,7 +2,7 @@ import os
 import pickle
 from game import Game
 from neural_network import NeuralNetwork
-# from nn_visualization import NNVisualizer  # Descomente se usar visualização da NN
+from nn_visualization import NNVisualizer
 
 def save_best_weights(nn, filename):
     """Salva os pesos da rede neural em um arquivo."""
@@ -24,14 +24,17 @@ def load_best_weights(nn, filename):
             nn.W2 = data['W2']
             nn.b2 = data['b2']
 
-def run_epoch(game, nn, num_players, object_speed):
+def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
     """Executa uma época do jogo e coleta experiências dos jogadores."""
     objects = []
     frame_count = 0
     players = []
-    # Inicializa os jogadores em posições diferentes
+    # Inicializa os jogadores em posições diferentes, espaçados uniformemente
     for i in range(num_players):
-        x_pos = int((game.WIDTH - game.player_size) * i / (num_players - 1)) if num_players > 1 else game.WIDTH // 2
+        if num_players > 1:
+            x_pos = int((game.WIDTH - game.player_size) * i / (num_players - 1))
+        else:
+            x_pos = game.WIDTH // 2
         players.append({
             'x': x_pos,
             'y': game.HEIGHT - game.player_size - 10,
@@ -58,6 +61,8 @@ def run_epoch(game, nn, num_players, object_speed):
                 state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, 0, 0, object_speed / 20]
             # Forward NN e ação
             z1, a1, z2, a2 = nn.forward(state)
+            if nn_vis and idx == 0 and frame_count % 500 == 0:
+                nn_vis.update(state, a1, a2)
             action = a2.index(max(a2))
             memories[idx]['states'].append(state)
             memories[idx]['actions'].append(action)
@@ -98,9 +103,9 @@ def run_epoch(game, nn, num_players, object_speed):
         objects = game.spawn_object(objects)
         objects = game.move_objects(objects, object_speed)
         # Mantém a janela aberta até o usuário fechar manualmente
-        # running = any(p['alive'] for p in players)  # Removido para não fechar automaticamente
+        running = any(p['alive'] for p in players)  # Removido para não fechar automaticamente
         game.draw_game(players, objects)
-        game.clock.tick(30)
+        game.clock.tick(500)
     return players, memories
 
 def train_nn(nn, memories, num_players, epoch):
@@ -122,24 +127,24 @@ def train_nn(nn, memories, num_players, epoch):
 
 def main():
     NUM_PLAYERS = 1
-    NUM_EPOCHS = 10
+    NUM_EPOCHS = 50
+    SHOW_NN_VIS = True  # do not use True if you have many players
     scores = []
     weights_file = 'best_nn_weights.pkl'
     nn = NeuralNetwork(input_size=5, hidden_size=10, output_size=3, lr=0.05, epochs=5)
     load_best_weights(nn, weights_file)
-    # nn_vis = NNVisualizer(input_size=5, hidden_size=20, output_size=3)  # Se quiser visualizar a NN
+    nn_vis = NNVisualizer(input_size=5, hidden_size=10, output_size=3) if SHOW_NN_VIS else None
     best_score_overall = -float('inf')
     best_weights = None
     for epoch in range(NUM_EPOCHS):
         game = Game()
         object_speed = 5
-        # Executa uma época do jogo
-        players, memories = run_epoch(game, nn, NUM_PLAYERS, object_speed)
+        players, memories = run_epoch(game, nn, NUM_PLAYERS, object_speed, nn_vis=nn_vis)
         player_scores = [p['score'] for p in players]
         best_score = max(player_scores)
         scores.append(best_score)
         print(f'Época {epoch+1} - Melhor score: {best_score}')
-        # Salva os melhores pesos
+        # Save the best weights
         if best_score > best_score_overall:
             best_score_overall = best_score
             best_weights = {
@@ -148,9 +153,9 @@ def main():
                 'W2': nn.W2,
                 'b2': nn.b2
             }
-        # Treina a rede neural
+        # Train the neural network
         train_nn(nn, memories, NUM_PLAYERS, epoch)
-        # Salva pesos em arquivo
+        # Save weights to file
         if best_weights:
             save_best_weights(nn, weights_file)
 

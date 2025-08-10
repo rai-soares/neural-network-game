@@ -1,64 +1,59 @@
 import pygame
 import random
 
-# Inicializa o pygame e configura a tela
-pygame.init()
-WIDTH, HEIGHT = 400, 600
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption('Desvie dos Objetos!')
-
 class Game:
   # Constantes do jogo
-  WIDTH = 400
-  HEIGHT = 600
-  player_size = 50
-  object_size = 40
-  player_speed = 7
-  WHITE = (255, 255, 255)
-  BLACK = (0, 0, 0)
-  RED = (255, 0, 0)
-  # Cores para diferenciar os jogadores
-  player_colors = [
-    (0, 0, 0),      # preto
-    (0, 0, 255),    # azul
-    (0, 200, 0),    # verde
-    (200, 0, 0),    # vermelho
-    (200, 200, 0),  # amarelo
-    (200, 0, 200),  # magenta
-    (0, 200, 200),  # ciano
-    (100, 100, 100) # cinza
-  ]
-
-  def __init__(self):
-    # Inicializa tela e relógio do jogo
+  # Game constants
+  def __init__(self, width=400, height=600, player_size=50, object_size=40, player_speed=7, num_players=1):
+    self.WIDTH = width
+    self.HEIGHT = height
+    self.player_size = player_size
+    self.object_size = object_size
+    self.player_speed = player_speed
+    self.num_players = num_players
+    self.WHITE = (255, 255, 255)
+    self.BLACK = (0, 0, 0)
+    self.RED = (255, 0, 0)
+    # Colors to differentiate players
+    self.player_colors = [
+      (0, 0, 0),      # preto
+      (0, 0, 255),    # azul
+      (0, 200, 0),    # verde
+      (200, 0, 0),    # vermelho
+      (200, 200, 0),  # amarelo
+      (200, 0, 200),  # magenta
+      (0, 200, 200),  # ciano
+      (100, 100, 100) # cinza
+    ]
+      # Initialize game screen and clock
     pygame.init()
     self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT))
     pygame.display.set_caption('Desvie dos Objetos!')
     self.clock = pygame.time.Clock()
 
   def handle_events(self):
-    # Processa eventos do pygame (fecha janela se necessário)
+    # Process pygame events (close window if needed)
     for event in pygame.event.get():
       if event.type == pygame.QUIT:
         return False
     return True
 
   def create_object(self):
-    # Cria um bloco (linha) com um espaço (gap) aleatório para o player passar
+    # Create a block (line) with a random gap for the player to pass through
     gap_width = self.player_size * 1.2
     gap_x = random.randint(0, self.WIDTH - int(gap_width))
     y = -self.object_size
     segments = []
-    # Segmento à esquerda do gap
+    # Segment to the left of the gap
     if gap_x > 0:
       segments.append([0, y, gap_x, self.object_size])
-    # Segmento à direita do gap
+    # Segment to the right of the gap
     if gap_x + gap_width < self.WIDTH:
       segments.append([gap_x + gap_width, y, self.WIDTH - (gap_x + gap_width), self.object_size])
     return segments
 
   def spawn_object(self, objects):
-    # Adiciona um novo bloco se não houver ou se o anterior já desceu
+    # Add a new block if there isn't one or if the previous one has moved down
     if not objects or all(seg[1] > self.object_size * 2 for seg in objects):
       segments = self.create_object()
       for seg in segments:
@@ -66,13 +61,13 @@ class Game:
     return objects
 
   def move_objects(self, objects, object_speed):
-    # Move os blocos para baixo
+    # Move the blocks down
     for seg in objects:
       seg[1] += object_speed * 1.3
     return objects
 
   def check_objects(self, objects, score):
-    # Remove blocos que saíram da tela e atualiza score
+    # Remove blocks that left the screen and update score
     new_objects = []
     for obj in objects:
       if obj[1] >= self.HEIGHT:
@@ -82,7 +77,7 @@ class Game:
     return new_objects, score
 
   def check_collision(self, objects, player_x, player_y):
-    # Verifica se o player colidiu com algum bloco
+    # Check if the player collided with any block
     for seg in objects:
       x, y, w, h = seg
       if (player_x < x + w and
@@ -93,12 +88,14 @@ class Game:
     return False
 
   def draw_game(self, players, objects):
-    # Desenha jogadores, blocos e scores na tela
+    # Draw players, blocks, and scores on the screen
     self.screen.fill(self.WHITE)
     for idx, player in enumerate(players):
-      if player['alive']:
-        color = self.player_colors[idx % len(self.player_colors)]
-        pygame.draw.rect(self.screen, color, (player['x'], player['y'], self.player_size, self.player_size))
+      color = self.player_colors[idx % len(self.player_colors)]
+      if not player['alive']:
+        # Dead player: light gray color
+        color = (180, 180, 180)
+      pygame.draw.rect(self.screen, color, (player['x'], player['y'], self.player_size, self.player_size))
     for seg in objects:
       x, y, w, h = seg
       pygame.draw.rect(self.screen, self.RED, (x, y, w, h))
@@ -108,13 +105,13 @@ class Game:
     self.screen.blit(score_text, (10, 10))
     pygame.display.flip()
 
-  def run(self, num_players=5):
-    # Executa uma simulação do jogo com jogadores aleatórios
+  def run(self):
+    # Run a simulation of the game with random players
     object_speed = 5
     objects = []
     frame_count = 0
     players = []
-    for _ in range(num_players):
+    for _ in range(self.num_players):
       players.append({
         'x': self.WIDTH // 2 - self.player_size // 2,
         'y': self.HEIGHT - self.player_size - 10,
@@ -126,7 +123,10 @@ class Game:
       frame_count += 1
       if frame_count % 100 == 0:
         object_speed += 1
-      running = self.handle_events()
+      # Handle window events every frame
+      if not self.handle_events():
+        running = False
+        break
       for player in players:
         if not player['alive']:
           continue
@@ -142,7 +142,13 @@ class Game:
           player['score'] += 1
       objects = self.spawn_object(objects)
       objects = self.move_objects(objects, object_speed)
-      running = any(p['alive'] for p in players)
+      # End game if all players are dead
+      if not any(p['alive'] for p in players):
+        running = False
+        break
       self.draw_game(players, objects)
-      self.clock.tick(30)
-    print('Scores:', [p['score'] for p in players])
+      self.clock.tick(500)
+      print('Scores:', [p['score'] for p in players])
+
+if __name__ == "__main__":
+    Game().run()

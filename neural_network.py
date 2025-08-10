@@ -2,16 +2,15 @@
 import random
 import math
 
-
 class NeuralNetwork:
   def __init__(self, input_size, hidden_size, output_size, lr=0.01, epochs=10):
     """
-    Inicializa a rede neural com pesos aleatórios.
-    input_size: número de entradas
-    hidden_size: neurônios na camada oculta
-    output_size: número de saídas (ações)
-    lr: taxa de aprendizado
-    epochs: épocas de treinamento por chamada
+    Initializes the neural network with random weights.
+    input_size: number of inputs
+    hidden_size: neurons in the hidden layer
+    output_size: number of outputs (actions)
+    lr: learning rate
+    epochs: training epochs per call
     """
     self.input_size = input_size
     self.hidden_size = hidden_size
@@ -24,26 +23,26 @@ class NeuralNetwork:
     self.b2 = [random.uniform(-1, 1) for _ in range(output_size)]
 
   def sigmoid(self, x):
-    """Função de ativação sigmoid."""
+    """Sigmoid activation function."""
     x = max(-60, min(60, x))
     return 1 / (1 + math.exp(-x))
 
   def sigmoid_deriv(self, x):
-    """Derivada da função sigmoid."""
+    """Derivative of the sigmoid function."""
     sx = self.sigmoid(x)
     return sx * (1 - sx)
 
   def forward(self, x):
     """
-    Executa o passo de feedforward:
-    - Calcula ativação da camada oculta
-    - Calcula ativação da camada de saída (softmax)
-    Retorna valores intermediários para o backward.
+    Performs the feedforward step:
+    - Calculates activation of the hidden layer
+    - Calculates activation of the output layer (softmax)
+    Returns intermediate values for backward.
     """
     z1 = [sum(x[i] * self.W1[j][i] for i in range(self.input_size)) + self.b1[j] for j in range(self.hidden_size)]
     a1 = [self.sigmoid(z) for z in z1]
     z2 = [sum(a1[i] * self.W2[j][i] for i in range(self.hidden_size)) + self.b2[j] for j in range(self.output_size)]
-    # Softmax com estabilidade numérica
+  # Softmax with numerical stability
     max_z2 = max(z2)
     exp_z2 = [math.exp(v - max_z2) for v in z2]
     sum_exp = sum(exp_z2)
@@ -54,11 +53,11 @@ class NeuralNetwork:
     return z1, a1, z2, a2
 
   def mse(self, y_true, y_pred):
-    """Calcula o erro quadrático médio entre saída e alvo."""
+    """Calculates the mean squared error between output and target."""
     return sum((yt - yp) ** 2 for yt, yp in zip(y_true, y_pred)) / len(y_true)
 
   def backward(self, x, y, z1, a1, z2, a2):
-    # Executa o passo de backpropagation: calcula gradientes e atualiza pesos/bias
+  # Performs the backpropagation step: calculates gradients and updates weights/biases
     dz2 = [a2[i] - y[i] for i in range(self.output_size)]
     dW2 = [[dz2[j] * a1[i] for i in range(self.hidden_size)] for j in range(self.output_size)]
     db2 = dz2[:]
@@ -78,8 +77,8 @@ class NeuralNetwork:
 
   def train(self, X, Y):
     """
-    Treina a rede neural nos dados X (entradas) e Y (saídas desejadas).
-    Executa várias épocas de ajuste dos pesos.
+    Trains the neural network on data X (inputs) and Y (desired outputs).
+    Performs multiple epochs of weight adjustment.
     """
     for epoch in range(self.epochs):
       total_loss = 0
@@ -90,8 +89,8 @@ class NeuralNetwork:
 
   def predict(self, x):
     """
-    Realiza uma predição para o estado x.
-    Retorna o índice da ação com maior probabilidade.
+    Makes a prediction for state x.
+    Returns the index of the action with the highest probability.
     """
     _, _, _, a2 = self.forward(x)
     return a2.index(max(a2))
