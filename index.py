@@ -1,8 +1,12 @@
 import os
 import pickle
+from nn_visualization import NNVisualizer, NNGraphVisualizer
 from game import Game
 from neural_network import NeuralNetwork
 from nn_visualization import NNVisualizer
+
+# USE 60 WITH NN_VISUALIZATION ON
+GAME_TICK_RATE = 500
 
 def save_best_weights(nn, filename):
     """Salva os pesos da rede neural em um arquivo."""
@@ -29,7 +33,7 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
     objects = []
     frame_count = 0
     players = []
-    # Inicializa os jogadores em posições diferentes, espaçados uniformemente
+    # Initialize players at different positions, evenly spaced
     for i in range(num_players):
         if num_players > 1:
             x_pos = int((game.WIDTH - game.player_size) * i / (num_players - 1))
@@ -51,7 +55,7 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
         for idx, player in enumerate(players):
             if not player['alive']:
                 continue
-            # Estado do jogador
+            # Player state
             if objects:
                 closest = min(objects, key=lambda o: o[1])
                 x_diff = (closest[0] - player['x']) / game.WIDTH
@@ -59,25 +63,25 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
                 state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, x_diff, y_diff, object_speed / 20]
             else:
                 state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, 0, 0, object_speed / 20]
-            # Forward NN e ação
+            # Forward NN and action
             z1, a1, z2, a2 = nn.forward(state)
-            if nn_vis and idx == 0 and frame_count % 500 == 0:
+            if nn_vis and idx == 0 and frame_count % 10 == 0:
                 nn_vis.update(state, a1, a2)
             action = a2.index(max(a2))
             memories[idx]['states'].append(state)
             memories[idx]['actions'].append(action)
-            # Movimento do jogador
+            # Player movement
             if action == 0 and player['x'] > 0:
                 player['x'] -= game.player_speed
             elif action == 2 and player['x'] < game.WIDTH - game.player_size:
                 player['x'] += game.player_speed
-            # Verifica colisão
+            # Check collision
             collision = game.check_collision(objects, player['x'], player['y'])
             if collision:
                 player['alive'] = False
                 memories[idx]['rewards'].append(-30)
             else:
-                # Recompensa se passar pelo espaço livre
+                # Reward if passing through the free gap
                 if objects:
                     segs = [seg for seg in objects if seg[1] < game.HEIGHT // 2]
                     if segs:
@@ -99,17 +103,17 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
                 else:
                     player['score'] += 1
                     memories[idx]['rewards'].append(1)
-        # Atualiza objetos e tela
+        # Update objects and screen
         objects = game.spawn_object(objects)
         objects = game.move_objects(objects, object_speed)
-        # Mantém a janela aberta até o usuário fechar manualmente
-        running = any(p['alive'] for p in players)  # Removido para não fechar automaticamente
+        # Keeps the window open until the user closes it manually
+        running = any(p['alive'] for p in players)  # Removed to prevent automatic window closing
         game.draw_game(players, objects)
-        game.clock.tick(500)
+        game.clock.tick(GAME_TICK_RATE)
     return players, memories
 
 def train_nn(nn, memories, num_players, epoch):
-    """Prepara os dados e treina a rede neural."""
+    """Prepares the data and trains the neural network."""
     all_states = []
     all_Y = []
     for idx in range(num_players):
@@ -126,25 +130,27 @@ def train_nn(nn, memories, num_players, epoch):
     print(f"Treino NN finalizado na época {epoch}.", flush=True)
 
 def main():
-    NUM_PLAYERS = 1
-    NUM_EPOCHS = 50
-    SHOW_NN_VIS = True  # do not use True if you have many players
+    NUM_PLAYERS = 200
+    NUM_EPOCHS = 10
+    SHOW_NN_VIS = False  # do not use True if you have many players
     scores = []
     weights_file = 'best_nn_weights.pkl'
     nn = NeuralNetwork(input_size=5, hidden_size=10, output_size=3, lr=0.05, epochs=5)
     load_best_weights(nn, weights_file)
     nn_vis = NNVisualizer(input_size=5, hidden_size=10, output_size=3) if SHOW_NN_VIS else None
+    nn_graph_vis = NNGraphVisualizer([nn.W1, nn.W2]) if SHOW_NN_VIS else None
+    all_memories = []
     best_score_overall = -float('inf')
     best_weights = None
     for epoch in range(NUM_EPOCHS):
         game = Game()
         object_speed = 5
         players, memories = run_epoch(game, nn, NUM_PLAYERS, object_speed, nn_vis=nn_vis)
+        all_memories.append(memories)
         player_scores = [p['score'] for p in players]
         best_score = max(player_scores)
         scores.append(best_score)
-        print(f'Época {epoch+1} - Melhor score: {best_score}')
-        # Save the best weights
+        print(f'Epoch {epoch+1} - Best score: {best_score}')
         if best_score > best_score_overall:
             best_score_overall = best_score
             best_weights = {
@@ -153,11 +159,23 @@ def main():
                 'W2': nn.W2,
                 'b2': nn.b2
             }
-        # Train the neural network
-        train_nn(nn, memories, NUM_PLAYERS, epoch)
-        # Save weights to file
-        if best_weights:
-            save_best_weights(nn, weights_file)
+        # Update graph visualizer after each epoch
+        if nn_graph_vis:
+            nn_graph_vis.update([nn.W1, nn.W2])
+    # After all epochs, train the neural network with all data
+    # Flatten all memories into one
+    merged_memories = [ {'states': [], 'actions': [], 'rewards': []} for _ in range(NUM_PLAYERS) ]
+    for memories in all_memories:
+        for idx in range(NUM_PLAYERS):
+            merged_memories[idx]['states'].extend(memories[idx]['states'])
+            merged_memories[idx]['actions'].extend(memories[idx]['actions'])
+            merged_memories[idx]['rewards'].extend(memories[idx]['rewards'])
+    train_nn(nn, merged_memories, NUM_PLAYERS, 'ALL')
+    # Update graph visualizer after global training
+    nn_graph_vis.update([nn.W1, nn.W2])
+    # Save weights to file
+    if best_weights:
+        save_best_weights(nn, weights_file)
 
 if __name__ == "__main__":
     main()

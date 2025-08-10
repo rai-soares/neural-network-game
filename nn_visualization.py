@@ -1,5 +1,52 @@
 import matplotlib.pyplot as plt
 import numpy as np
+class NNGraphVisualizer:
+    def __init__(self, weights, biases=None):
+        self.weights = weights  # list of weight matrices: [W1, W2, ...]
+        self.biases = biases if biases is not None else []
+        self.fig, self.ax = plt.subplots(figsize=(10, 5))
+        self.fig.patch.set_facecolor('white')
+        self.ax.set_facecolor('white')
+        for spine in self.ax.spines.values():
+            spine.set_visible(False)
+        plt.ion()
+        plt.show()
+
+    def update(self, weights, biases=None):
+        self.weights = weights
+        self.biases = biases if biases is not None else []
+        self.ax.clear()
+        self.fig.patch.set_facecolor('white')
+        self.ax.set_facecolor('white')
+        self.draw_network()
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
+        plt.pause(0.01)
+
+    def draw_network(self):
+        # Determine layer sizes from weights
+        layer_sizes = [len(self.weights[0][0])] + [len(w) for w in self.weights]
+        node_positions = []
+        color_palette = ['#1976d2', '#26a69a', '#7e57c2', '#fbc02d', '#8d6e63', '#43a047']
+        for i, size in enumerate(layer_sizes):
+            x = i * 2.5
+            y_positions = np.linspace(-2, 2, size)
+            node_positions.append([(x, y) for y in y_positions])
+            for (nx, ny) in node_positions[-1]:
+                color = color_palette[i % len(color_palette)]
+                self.ax.add_patch(plt.Circle((nx, ny), 0.18, color=color, ec='black', lw=1.5, zorder=2))
+        # Draw weights between layers
+        for l in range(len(self.weights)):
+            W = self.weights[l]
+            for i, (x0, y0) in enumerate(node_positions[l]):
+                for j, (x1, y1) in enumerate(node_positions[l+1]):
+                    w = W[j][i]
+                    color = '#e53935' if w < 0 else '#1e88e5'
+                    self.ax.plot([x0, x1], [y0, y1], color=color, linewidth=max(0.7, abs(w)*1.5), alpha=0.6, zorder=1)
+        self.ax.set_xlim(-1, 2.5 * (len(layer_sizes)-1) + 1)
+        self.ax.set_ylim(-2.5, 2.5)
+        self.ax.axis('off')
+        self.ax.set_title('Neural Network Structure', fontsize=16, fontweight='bold', pad=20)
 
 class NNVisualizer:
     """
