@@ -60,9 +60,9 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
                 closest = min(objects, key=lambda o: o[1])
                 x_diff = (closest[0] - player['x']) / game.WIDTH
                 y_diff = (closest[1] - player['y']) / game.HEIGHT
-                state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, x_diff, y_diff, object_speed / 20]
+                state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, x_diff, y_diff, object_speed / game.HEIGHT]
             else:
-                state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, 0, 0, object_speed / 20]
+                state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, 0, 0, object_speed / game.HEIGHT]
             # Forward NN and action
             z1, a1, z2, a2 = nn.forward(state)
             if nn_vis and idx == 0 and frame_count % 10 == 0:
@@ -79,9 +79,9 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
             collision = game.check_collision(objects, player['x'], player['y'])
             if collision:
                 player['alive'] = False
-                memories[idx]['rewards'].append(-30)
+                memories[idx]['rewards'].append(-100)  # Strong negative reward for collision
             else:
-                # Reward if passing through the free gap
+                # Reward for passing through the gap
                 if objects:
                     segs = [seg for seg in objects if seg[1] < game.HEIGHT // 2]
                     if segs:
@@ -91,23 +91,23 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
                             gap_width = segs_sorted[1][0] - gap_x
                             if player['x'] + game.player_size > gap_x and player['x'] < gap_x + gap_width:
                                 player['score'] += 1
-                                memories[idx]['rewards'].append(20)
+                                memories[idx]['rewards'].append(10)  # Higher positive reward for passing gap
                             else:
-                                memories[idx]['rewards'].append(0)
+                                memories[idx]['rewards'].append(-1)  # Small negative for not passing gap
                         else:
                             player['score'] += 1
-                            memories[idx]['rewards'].append(1)
+                            memories[idx]['rewards'].append(2)
                     else:
                         player['score'] += 1
-                        memories[idx]['rewards'].append(1)
+                        memories[idx]['rewards'].append(2)
                 else:
                     player['score'] += 1
-                    memories[idx]['rewards'].append(1)
+                    memories[idx]['rewards'].append(2)
         # Update objects and screen
         objects = game.spawn_object(objects)
         objects = game.move_objects(objects, object_speed)
         # Keeps the window open until the user closes it manually
-        running = any(p['alive'] for p in players)  # Removed to prevent automatic window closing
+        running = any(p['alive'] for p in players)  # Removed to prevent automatic window closing200
         game.draw_game(players, objects)
         game.clock.tick(GAME_TICK_RATE)
     return players, memories
@@ -130,7 +130,7 @@ def train_nn(nn, memories, num_players, epoch):
     print(f"Treino NN finalizado na época {epoch}.", flush=True)
 
 def main():
-    NUM_PLAYERS = 200
+    NUM_PLAYERS = 20
     NUM_EPOCHS = 10
     SHOW_NN_VIS = False  # do not use True if you have many players
     scores = []
