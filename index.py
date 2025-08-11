@@ -7,15 +7,18 @@ from neural_network import NeuralNetwork
 from nn_visualization import NNVisualizer
 
 # USE 60 WITH NN_VISUALIZATION ON
-GAME_TICK_RATE = 60
+GAME_TICK_RATE = 1000
 
 def save_best_weights(nn, filename):
     """Salva os pesos da rede neural em um arquivo."""
+    if os.path.exists(filename):
+        os.remove(filename)
     with open(filename, 'wb') as f:
         pickle.dump({
             'weights': nn.weights,
             'biases': nn.biases
         }, f)
+        print(f"[INFO] Pesos salvos em {filename}")
 
 def load_best_weights(nn, filename):
     """Carrega os pesos salvos para a rede neural, se existirem."""
@@ -86,7 +89,7 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None, epsilon=0.1):
             else:
                 state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, 0, 0, object_speed / game.HEIGHT, 0, 0, 0, 0]
             # Forward NN and action
-            # Verifica se o tamanho do estado está correto
+            # Check if the state size is correct
             if hasattr(nn, 'input_size') and len(state) != nn.input_size:
                 print(f"[ERROR] Tamanho do estado ({len(state)}) diferente do esperado pela NN ({nn.input_size}). Estado: {state}")
                 raise ValueError(f"Tamanho do estado ({len(state)}) diferente do esperado pela NN ({nn.input_size})")
@@ -94,12 +97,11 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None, epsilon=0.1):
             if nn_vis and idx == 0 and frame_count % 10 == 0:
                 nn_vis.update(*activations)
             a_out = activations[-1]
-            # Escolha da ação
+            # Action selection
             if np.random.rand() < epsilon:
                 action = np.random.choice([0, 1, 2])
             else:
                 action = a_out.index(max(a_out))
-            # Log detalhado: estado, ação, output da RN
             if 'epsilon' in locals():
                 eps = epsilon
             else:
@@ -121,28 +123,30 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None, epsilon=0.1):
                 player['alive'] = False
                 reward = -200  # Negative reward for collision
             else:
-                # Recompensa só se passar pelo gap, penalidade se errar, sobrevivência neutra
+                # Reward only if passing through the gap, penalty if missed, neutral for survival
                 if objects:
                     segs_same_y = [seg for seg in objects if seg[1] == closest[1]]
                     segs_sorted = sorted(segs_same_y, key=lambda s: s[0])
                     if len(segs_sorted) == 2:
                         gap_x = segs_sorted[0][0] + segs_sorted[0][2]
                         gap_width = segs_sorted[1][0] - gap_x
+                        gap_center_x = gap_x + gap_width / 2
+                        player_center_x = player['x'] + game.player_size / 2
+                        dist_to_center = abs(player_center_x - gap_center_x)
+                        dist_norm = dist_to_center / (gap_width / 2)
+                        # Recompensa sempre proporcional à proximidade do centro do gap
+                        reward = 100 * (1 - dist_norm)
                         if player['x'] + game.player_size > gap_x and player['x'] < gap_x + gap_width:
                             player['score'] += 1
-                            reward = 100  # Positive reward for passing gap
                         else:
-                            reward = -100  # Stronger negative for missing gap
+                            reward -= 50  # penalidade extra se não passar pelo gap
                     else:
                         player['score'] += 1
                         reward = 0  # Neutral for surviving
                 else:
-                    player['score'] += 1
-                    reward = 1  # Small positive for surviving each frame
+                    player['score'] += 0
+                    reward = 0  # Small positive for surviving each frame
             memories[idx]['rewards'].append(reward)        
-            # Debug: print sample reward occasionally
-            if idx == 0 and frame_count % 100 == 0:
-                print(f"Sample reward: {memories[idx]['rewards'][-1]}")
         # Update objects and screen
         objects = game.spawn_object(objects)
         objects = game.move_objects(objects, object_speed)
@@ -166,27 +170,26 @@ def train_nn(nn, memories, num_players, epoch):
             all_states.append(s)
             all_Y.append(y)
     print(f"Treinando NN na época {epoch} com {len(all_states)} amostras...", flush=True)
-    # Treina com 5x mais épocas para batch maior
-    nn.epochs = 50
+    nn.epochs = 100
     nn.train(all_states, all_Y)
     nn.epochs = 10
     print(f"Treino NN finalizado na época {epoch}.", flush=True)
 
 def main():
-    NUM_PLAYERS = 5
-    NUM_EPOCHS = 100
+    NUM_PLAYERS =  1
+    NUM_EPOCHS = 2000  # Mais épocas para melhor aprendizado
     SHOW_NN_VIS = False  # do not use True if you have many players
     scores = []
     weights_file = 'best_nn_weights.pkl'
     # Use 2 hidden layers for more stable learning
-    hidden_layers = [16, 16]
-    nn = NeuralNetwork(input_size=9, hidden_sizes=hidden_layers, output_size=3, lr=0.05, epochs=10)
-    # Verifica se o arquivo de pesos existe e se a arquitetura mudou
+    hidden_layers = [32, 32, 16]
+    nn = NeuralNetwork(input_size=9, hidden_sizes=hidden_layers, output_size=3, lr=0.01, epochs=200)
+    # Check if the weights file exists and if the architecture has changed
     if os.path.exists(weights_file):
         try:
             with open(weights_file, 'rb') as f:
                 data = pickle.load(f)
-                # Verifica se o shape dos pesos é compatível
+                # Check if the shape of the weights is compatible
                 if len(data['weights'][0][0]) != nn.input_size:
                     os.remove(weights_file)
                 else:
@@ -201,17 +204,21 @@ def main():
     all_memories = []
     best_score_overall = -float('inf')
     best_weights = None
-    epsilon_start = 0.5
+    epsilon_start = 0.8  # Mais exploração no início
     epsilon_end = 0.05
+    nn.epochs = 200  # Mais épocas de treino por batch
+    game = Game()
     for epoch in range(NUM_EPOCHS):
         epsilon = epsilon_start - (epsilon_start - epsilon_end) * (epoch / (NUM_EPOCHS * 0.8))
-        game = Game()
+        if hasattr(game, 'reset'):
+            game.reset()
         object_speed = 5
         players, memories = run_epoch(game, nn, NUM_PLAYERS, object_speed, nn_vis=nn_vis, epsilon=epsilon)
         all_memories.append(memories)
         player_scores = [p['score'] for p in players]
         best_score = max(player_scores)
         scores.append(best_score)
+        print(f'Epoch {epoch+1} - Best score: {best_score}')
         if best_score > best_score_overall:
             best_score_overall = best_score
             best_weights = {
@@ -220,9 +227,8 @@ def main():
             }
         if nn_graph_vis:
             nn_graph_vis.update(nn.weights)
-    # Save weights to file
-    if best_weights:
-        save_best_weights(nn, weights_file)
+    # Save weights to file (always saves the best of the session)
+    save_best_weights(nn, weights_file)
 
 if __name__ == "__main__":
     main()

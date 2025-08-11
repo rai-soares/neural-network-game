@@ -4,7 +4,7 @@ import random
 class Game:
   # Constantes do jogo
   # Game constants
-  def __init__(self, width=400, height=600, player_size=50, object_size=40, player_speed=7, num_players=1):
+  def __init__(self, width=400, height=600, player_size=40, object_size=40, player_speed=15, num_players=1):
     self.WIDTH = width
     self.HEIGHT = height
     self.player_size = player_size
@@ -105,6 +105,12 @@ class Game:
     score_text = font.render(scores_text, True, self.BLACK)
     self.screen.blit(score_text, (10, 10))
     pygame.display.flip()
+
+  def reset(self):
+        # Reinicia o estado do jogo para uma nova época
+        # Não fecha a janela, apenas zera objetos e outros estados
+        # O restante do estado é inicializado em run_epoch
+        pass
 
   def run(self):
     # Run a simulation of the game with random players
