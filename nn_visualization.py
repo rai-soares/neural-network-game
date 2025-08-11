@@ -2,9 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 class NNGraphVisualizer:
     def __init__(self, weights, biases=None):
-        self.weights = weights  # list of weight matrices: [W1, W2, ...]
+        self.weights = weights  # list of weight matrices: [W1, W2, W3]
         self.biases = biases if biases is not None else []
-        self.fig, self.ax = plt.subplots(figsize=(10, 5))
+        self.fig, self.ax = plt.subplots(figsize=(12, 5))
         self.fig.patch.set_facecolor('white')
         self.ax.set_facecolor('white')
         for spine in self.ax.spines.values():
@@ -52,27 +52,33 @@ class NNVisualizer:
     """
     Visualizes neural network activations in real time.
     """
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_size, hidden_sizes, output_size):
         self.input_size = input_size
-        self.hidden_size = hidden_size
+        self.hidden_sizes = hidden_sizes
         self.output_size = output_size
-        self.fig, self.axs = plt.subplots(1, 3, figsize=(10, 3))
-        self.fig.suptitle('Ativações da Rede Neural')
+        n_bars = 2 + len(hidden_sizes)  # input + hidden layers + output
+        self.fig, self.axs = plt.subplots(1, n_bars, figsize=(2*n_bars, 3))
+        self.fig.suptitle('Neural Network Activations')
         self.input_bar = self.axs[0].bar(range(input_size), np.zeros(input_size))
         self.axs[0].set_title('Input')
-        self.hidden_bar = self.axs[1].bar(range(hidden_size), np.zeros(hidden_size))
-        self.axs[1].set_title('Hidden')
-        self.output_bar = self.axs[2].bar(range(output_size), np.zeros(output_size))
-        self.axs[2].set_title('Output')
+        self.hidden_bars = []
+        for i, h_size in enumerate(hidden_sizes):
+            bars = self.axs[i+1].bar(range(h_size), np.zeros(h_size))
+            self.axs[i+1].set_title(f'Hidden {i+1}')
+            self.hidden_bars.append(bars)
+        self.output_bar = self.axs[-1].bar(range(output_size), np.zeros(output_size))
+        self.axs[-1].set_title('Output')
         plt.ion()
         plt.show()
 
-    def update(self, input_vec, hidden_vec, output_vec):
-        for bar, val in zip(self.input_bar, input_vec):
+    def update(self, *activations):
+        # activations: input, hidden1, hidden2, ..., output
+        for bar, val in zip(self.input_bar, activations[0]):
             bar.set_height(val)
-        for bar, val in zip(self.hidden_bar, hidden_vec):
-            bar.set_height(val)
-        for bar, val in zip(self.output_bar, output_vec):
+        for i, hidden_vec in enumerate(activations[1:-1]):
+            for bar, val in zip(self.hidden_bars[i], hidden_vec):
+                bar.set_height(val)
+        for bar, val in zip(self.output_bar, activations[-1]):
             bar.set_height(val)
         for ax in self.axs:
             ax.relim()

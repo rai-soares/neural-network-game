@@ -40,7 +40,7 @@ class Game:
 
   def create_object(self):
     # Create a block (line) with a random gap for the player to pass through
-    gap_width = self.player_size * 1.2
+    gap_width = self.player_size * 4.0  # Increased gap for easier passage
     gap_x = random.randint(0, self.WIDTH - int(gap_width))
     y = -self.object_size
     segments = []
@@ -53,8 +53,9 @@ class Game:
     return segments
 
   def spawn_object(self, objects):
-    # Add a new block if there isn't one or if the previous one has moved down
-    if not objects or all(seg[1] > self.object_size * 2 for seg in objects):
+    # Add a new block if there isn't one or if the previous one has moved down far enough
+    vertical_gap = self.object_size * 6  # Increase this value for more space between lines
+    if not objects or all(seg[1] > vertical_gap for seg in objects):
       segments = self.create_object()
       for seg in segments:
         objects.append(seg)
@@ -121,8 +122,6 @@ class Game:
     running = True
     while running:
       frame_count += 1
-      if frame_count % 100 == 0:
-        object_speed += 1
       # Handle window events every frame
       if not self.handle_events():
         running = False

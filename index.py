@@ -1,21 +1,20 @@
 import os
 import pickle
+import numpy as np
 from nn_visualization import NNVisualizer, NNGraphVisualizer
 from game import Game
 from neural_network import NeuralNetwork
 from nn_visualization import NNVisualizer
 
 # USE 60 WITH NN_VISUALIZATION ON
-GAME_TICK_RATE = 500
+GAME_TICK_RATE = 60
 
 def save_best_weights(nn, filename):
     """Salva os pesos da rede neural em um arquivo."""
     with open(filename, 'wb') as f:
         pickle.dump({
-            'W1': nn.W1,
-            'b1': nn.b1,
-            'W2': nn.W2,
-            'b2': nn.b2
+            'weights': nn.weights,
+            'biases': nn.biases
         }, f)
 
 def load_best_weights(nn, filename):
@@ -23,12 +22,10 @@ def load_best_weights(nn, filename):
     if os.path.exists(filename):
         with open(filename, 'rb') as f:
             data = pickle.load(f)
-            nn.W1 = data['W1']
-            nn.b1 = data['b1']
-            nn.W2 = data['W2']
-            nn.b2 = data['b2']
+            nn.weights = data['weights']
+            nn.biases = data['biases']
 
-def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
+def run_epoch(game, nn, num_players, object_speed, nn_vis=None, epsilon=0.1):
     """Executa uma época do jogo e coleta experiências dos jogadores."""
     objects = []
     frame_count = 0
@@ -57,17 +54,60 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
                 continue
             # Player state
             if objects:
-                closest = min(objects, key=lambda o: o[1])
+                closest = min(objects, key=lambda o: abs(o[1] - player['y']))
                 x_diff = (closest[0] - player['x']) / game.WIDTH
                 y_diff = (closest[1] - player['y']) / game.HEIGHT
-                state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, x_diff, y_diff, object_speed / game.HEIGHT]
+                segs_same_y = [seg for seg in objects if seg[1] == closest[1]]
+                segs_sorted = sorted(segs_same_y, key=lambda s: s[0])
+                if len(segs_sorted) == 2:
+                    gap_x = segs_sorted[0][0] + segs_sorted[0][2]
+                    gap_width = segs_sorted[1][0] - gap_x
+                    gap_x_norm = gap_x / game.WIDTH
+                    gap_width_norm = gap_width / game.WIDTH
+                    gap_center_x = gap_x + gap_width / 2
+                    gap_center_x_norm = gap_center_x / game.WIDTH
+                    dist_to_gap_center = (gap_center_x - player['x']) / game.WIDTH
+                else:
+                    gap_x_norm = 0
+                    gap_width_norm = 0
+                    gap_center_x_norm = 0
+                    dist_to_gap_center = 0
+                state = [
+                    player['x'] / game.WIDTH,
+                    player['y'] / game.HEIGHT,
+                    x_diff,
+                    y_diff,
+                    object_speed / game.HEIGHT,
+                    gap_x_norm,
+                    gap_width_norm,
+                    gap_center_x_norm,
+                    dist_to_gap_center
+                ]
             else:
-                state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, 0, 0, object_speed / game.HEIGHT]
+                state = [player['x'] / game.WIDTH, player['y'] / game.HEIGHT, 0, 0, object_speed / game.HEIGHT, 0, 0, 0, 0]
             # Forward NN and action
-            z1, a1, z2, a2 = nn.forward(state)
+            # Verifica se o tamanho do estado está correto
+            if hasattr(nn, 'input_size') and len(state) != nn.input_size:
+                print(f"[ERROR] Tamanho do estado ({len(state)}) diferente do esperado pela NN ({nn.input_size}). Estado: {state}")
+                raise ValueError(f"Tamanho do estado ({len(state)}) diferente do esperado pela NN ({nn.input_size})")
+            zs, activations = nn.forward(state)
             if nn_vis and idx == 0 and frame_count % 10 == 0:
-                nn_vis.update(state, a1, a2)
-            action = a2.index(max(a2))
+                nn_vis.update(*activations)
+            a_out = activations[-1]
+            # Escolha da ação
+            if np.random.rand() < epsilon:
+                action = np.random.choice([0, 1, 2])
+            else:
+                action = a_out.index(max(a_out))
+            # Log detalhado: estado, ação, output da RN
+            if 'epsilon' in locals():
+                eps = epsilon
+            else:
+                eps = 0.1
+            if np.random.rand() < eps:
+                action = np.random.choice([0, 1, 2])
+            else:
+                action = a_out.index(max(a_out))
             memories[idx]['states'].append(state)
             memories[idx]['actions'].append(action)
             # Player movement
@@ -79,30 +119,30 @@ def run_epoch(game, nn, num_players, object_speed, nn_vis=None):
             collision = game.check_collision(objects, player['x'], player['y'])
             if collision:
                 player['alive'] = False
-                memories[idx]['rewards'].append(-100)  # Strong negative reward for collision
+                reward = -200  # Negative reward for collision
             else:
-                # Reward for passing through the gap
+                # Recompensa só se passar pelo gap, penalidade se errar, sobrevivência neutra
                 if objects:
-                    segs = [seg for seg in objects if seg[1] < game.HEIGHT // 2]
-                    if segs:
-                        segs_sorted = sorted(segs, key=lambda s: s[0])
-                        if len(segs_sorted) == 2:
-                            gap_x = segs_sorted[0][0] + segs_sorted[0][2]
-                            gap_width = segs_sorted[1][0] - gap_x
-                            if player['x'] + game.player_size > gap_x and player['x'] < gap_x + gap_width:
-                                player['score'] += 1
-                                memories[idx]['rewards'].append(10)  # Higher positive reward for passing gap
-                            else:
-                                memories[idx]['rewards'].append(-1)  # Small negative for not passing gap
-                        else:
+                    segs_same_y = [seg for seg in objects if seg[1] == closest[1]]
+                    segs_sorted = sorted(segs_same_y, key=lambda s: s[0])
+                    if len(segs_sorted) == 2:
+                        gap_x = segs_sorted[0][0] + segs_sorted[0][2]
+                        gap_width = segs_sorted[1][0] - gap_x
+                        if player['x'] + game.player_size > gap_x and player['x'] < gap_x + gap_width:
                             player['score'] += 1
-                            memories[idx]['rewards'].append(2)
+                            reward = 100  # Positive reward for passing gap
+                        else:
+                            reward = -100  # Stronger negative for missing gap
                     else:
                         player['score'] += 1
-                        memories[idx]['rewards'].append(2)
+                        reward = 0  # Neutral for surviving
                 else:
                     player['score'] += 1
-                    memories[idx]['rewards'].append(2)
+                    reward = 1  # Small positive for surviving each frame
+            memories[idx]['rewards'].append(reward)        
+            # Debug: print sample reward occasionally
+            if idx == 0 and frame_count % 100 == 0:
+                print(f"Sample reward: {memories[idx]['rewards'][-1]}")
         # Update objects and screen
         objects = game.spawn_object(objects)
         objects = game.move_objects(objects, object_speed)
@@ -126,54 +166,60 @@ def train_nn(nn, memories, num_players, epoch):
             all_states.append(s)
             all_Y.append(y)
     print(f"Treinando NN na época {epoch} com {len(all_states)} amostras...", flush=True)
+    # Treina com 5x mais épocas para batch maior
+    nn.epochs = 50
     nn.train(all_states, all_Y)
+    nn.epochs = 10
     print(f"Treino NN finalizado na época {epoch}.", flush=True)
 
 def main():
-    NUM_PLAYERS = 20
-    NUM_EPOCHS = 10
+    NUM_PLAYERS = 5
+    NUM_EPOCHS = 100
     SHOW_NN_VIS = False  # do not use True if you have many players
     scores = []
     weights_file = 'best_nn_weights.pkl'
-    nn = NeuralNetwork(input_size=5, hidden_size=10, output_size=3, lr=0.05, epochs=5)
-    load_best_weights(nn, weights_file)
-    nn_vis = NNVisualizer(input_size=5, hidden_size=10, output_size=3) if SHOW_NN_VIS else None
-    nn_graph_vis = NNGraphVisualizer([nn.W1, nn.W2]) if SHOW_NN_VIS else None
+    # Use 2 hidden layers for more stable learning
+    hidden_layers = [16, 16]
+    nn = NeuralNetwork(input_size=9, hidden_sizes=hidden_layers, output_size=3, lr=0.05, epochs=10)
+    # Verifica se o arquivo de pesos existe e se a arquitetura mudou
+    if os.path.exists(weights_file):
+        try:
+            with open(weights_file, 'rb') as f:
+                data = pickle.load(f)
+                # Verifica se o shape dos pesos é compatível
+                if len(data['weights'][0][0]) != nn.input_size:
+                    os.remove(weights_file)
+                else:
+                    load_best_weights(nn, weights_file)
+        except Exception as e:
+            print(f"[INFO] Erro ao carregar pesos: {e}. Removendo arquivo.")
+            os.remove(weights_file)
+    else:
+        load_best_weights(nn, weights_file)
+    nn_vis = NNVisualizer(input_size=9, hidden_sizes=hidden_layers, output_size=3) if SHOW_NN_VIS else None
+    nn_graph_vis = NNGraphVisualizer(nn.weights) if SHOW_NN_VIS else None
     all_memories = []
     best_score_overall = -float('inf')
     best_weights = None
+    epsilon_start = 0.5
+    epsilon_end = 0.05
     for epoch in range(NUM_EPOCHS):
+        epsilon = epsilon_start - (epsilon_start - epsilon_end) * (epoch / (NUM_EPOCHS * 0.8))
         game = Game()
         object_speed = 5
-        players, memories = run_epoch(game, nn, NUM_PLAYERS, object_speed, nn_vis=nn_vis)
+        players, memories = run_epoch(game, nn, NUM_PLAYERS, object_speed, nn_vis=nn_vis, epsilon=epsilon)
         all_memories.append(memories)
         player_scores = [p['score'] for p in players]
         best_score = max(player_scores)
         scores.append(best_score)
-        print(f'Epoch {epoch+1} - Best score: {best_score}')
         if best_score > best_score_overall:
             best_score_overall = best_score
             best_weights = {
-                'W1': nn.W1,
-                'b1': nn.b1,
-                'W2': nn.W2,
-                'b2': nn.b2
+                'weights': nn.weights,
+                'biases': nn.biases
             }
-        # Update graph visualizer after each epoch
         if nn_graph_vis:
-            nn_graph_vis.update([nn.W1, nn.W2])
-    # After all epochs, train the neural network with all data
-    # Flatten all memories into one
-    merged_memories = [ {'states': [], 'actions': [], 'rewards': []} for _ in range(NUM_PLAYERS) ]
-    for memories in all_memories:
-        for idx in range(NUM_PLAYERS):
-            merged_memories[idx]['states'].extend(memories[idx]['states'])
-            merged_memories[idx]['actions'].extend(memories[idx]['actions'])
-            merged_memories[idx]['rewards'].extend(memories[idx]['rewards'])
-    train_nn(nn, merged_memories, NUM_PLAYERS, 'ALL')
-    # Update graph visualizer after global training
-    if nn_graph_vis:
-        nn_graph_vis.update([nn.W1, nn.W2])
+            nn_graph_vis.update(nn.weights)
     # Save weights to file
     if best_weights:
         save_best_weights(nn, weights_file)
